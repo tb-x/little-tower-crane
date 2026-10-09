@@ -6,6 +6,8 @@ A tower crane stands on a busy city construction site. Tap a block and the crane
 
 Around the site the city keeps going: an excavator loads a dump truck, a bulldozer and a cement mixer work the site, cars stop at traffic lights, and people walk by. Day turns to night and back, and it sometimes rains or snows.
 
+- 🏠 in the corner goes back to the list of all games.
+
 **Play:** https://tb-x.github.io/little-tower-crane/
 
 ## Running locally
