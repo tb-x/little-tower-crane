@@ -10,6 +10,12 @@ Around the site the city keeps going: an excavator loads a dump truck, a bulldoz
 
 **Play:** https://tb-x.github.io/little-tower-crane/
 
+## Play offline (add to Home Screen)
+
+On iPhone or iPad, open the game in Safari, tap **Share → Add to Home Screen**, then open it once from the new icon while online. After that it starts full screen and works without internet. Changes arrive on their own: the next online launch downloads them and the one after shows them.
+
+(How: `manifest.webmanifest` gives the icon and full-screen mode; `sw.js`, a service worker, keeps a copy of every file the game uses, including three.js and the fonts. The icons `icon-180.png` and `icon-512.png` are rendered from `icon.svg` in headless Chrome.)
+
 ## Running locally
 
 It is a single `index.html` with no build step. [three.js](https://threejs.org/) 0.160 loads from jsDelivr. Serve the folder over HTTP, for example:
