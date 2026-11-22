@@ -2183,6 +2183,36 @@ function updateBursts(dt){
 }
 
 /* ================= sound & voice ================= */
+// ElevenLabs clips from assets/ (sfx/ and voice/), with the synthesized sounds below and the device's voice as
+// fallback (on file://, while a clip is still decoding right after the first tap, or if a clip fails to load).
+const ASSET_V = 1;            // bump after replacing any file in assets/
+const CLIP_VOL = 0.8;         // sound effect clips
+const VOICE_VOL = 1;          // spoken clips
+const HUM_VOL = 0.1;          // the crane's engine loop at full speed (silent when the crane stands still)
+const HUM_PITCH = 0.04;       // how much faster the engine loop plays per unit of crane speed (up to 10)
+const CLIP_TRIM = {           // per-clip level trims, measured so the effects sit near the voice's loudness
+  'sfx/tap': 0.5, 'sfx/nope': 0.33, 'sfx/pop': 0.6, 'sfx/thud': 0.9, 'sfx/boom': 0.9,
+  'sfx/fanfare': 0.45, 'sfx/win': 0.45, 'sfx/roof': 0.45,
+};
+const LINES = {               // spoken text → recorded clip (the text must match the say() call exactly)
+  "Let's build a skyscraper! Tap a block.": 'say-start', 'A new tower! Tap a block.': 'say-new-tower',
+  'Now find where it fits!': 'say-find', 'Now put the roof on top!': 'say-roof-top',
+  "Hmm, it doesn't fit there. Try another spot!": 'say-nofit', 'Look for the arrow!': 'say-arrow',
+  'Great!': 'say-great', 'Perfect fit!': 'say-perfect-fit', 'Super!': 'say-super', 'Yes!': 'say-yes',
+  'Well done!': 'say-well-done', 'Nice one!': 'say-nice-one', 'Awesome!': 'say-awesome',
+  "Floor complete! Let's build higher!": 'say-floor-1', 'Hooray, another floor!': 'say-floor-2',
+  'Great building! Up we go!': 'say-floor-3', 'Floor done! Only the roof is left!': 'say-floor-last',
+  'Last one: the roof!': 'say-roof-last', 'Hooray! You built a skyscraper!': 'say-win',
+  'Look! A garden grows round your building!': 'say-garden',
+  "Oh! It's raining!": 'say-rain-1', 'Pitter patter, here comes the rain!': 'say-rain-2',
+  "Look, it's snowing!": 'say-snow-1', 'Snowflakes! Brrr!': 'say-snow-2', 'The clouds are going away!': 'say-clear',
+};
+const CLIPS = [
+  ...Object.values(LINES).map(n => 'voice/' + n),
+  'sfx/tap', 'sfx/clank', 'sfx/place', 'sfx/nope', 'sfx/pop', 'sfx/thud', 'sfx/boom', 'sfx/hum', 'sfx/fanfare', 'sfx/win', 'sfx/roof',
+];
+const clipRaw = {}, clipBuf = {}, clipReady = {};   // fetched bytes start loading now; decoding needs the AudioContext from the first tap
+for (const n of CLIPS) clipRaw[n] = fetch(`assets/${n}.mp3?v=${ASSET_V}`).then(r => r.ok ? r.arrayBuffer() : null).catch(() => null);
 let actx = null, master = null, hum = null, noiseBuf = null, muted = false;
 function initAudio(){
   if (actx){ actx.resume?.(); return; }
@@ -2195,7 +2225,22 @@ function initAudio(){
     const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 200;
     const g = actx.createGain(); g.gain.value = 0;
     o.connect(f).connect(g).connect(master); o.start(); hum = { o, g };
-  } catch (e){ actx = null; }
+  } catch (e){ actx = null; return; }
+  for (const n of CLIPS) clipReady[n] = clipRaw[n].then(b => b && new Promise((res, rej) => actx.decodeAudioData(b, res, rej)))
+    .then(buf => { if (!buf) return; clipBuf[n] = buf; if (n === 'sfx/hum') humClip(buf); }).catch(() => {});
+}
+// the recorded engine loop takes over from the synthesized hum once it has decoded
+function humClip(buf){
+  const s = actx.createBufferSource(), g = actx.createGain();
+  s.buffer = buf; s.loop = true; s.loopStart = 0.05; s.loopEnd = buf.duration - 0.05;   // skip the MP3 padding so the loop has no gap
+  g.gain.value = 0; s.connect(g).connect(master); s.start();
+  try { hum.o.stop(); } catch (e){}
+  hum = { s, g };
+}
+function clip(name, vol = CLIP_VOL){   // plays a loaded clip; returns null if it isn't loaded so the caller can synthesize
+  const buf = clipBuf[name]; if (!actx || muted || !buf) return null;
+  const s = actx.createBufferSource(), g = actx.createGain(); s.buffer = buf; g.gain.value = vol * (CLIP_TRIM[name] ?? 1);
+  s.connect(g).connect(master); s.start(); return s;
 }
 function tone(freq, dur, { type = 'sine', vol = 0.3, slide = null, delay = 0 } = {}){
   if (!actx || muted) return;
@@ -2212,17 +2257,18 @@ function noise(dur, { vol = 0.3, freq = 1200, q = 1, delay = 0 } = {}){
   s.connect(f).connect(g).connect(master); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
 }
 const sfx = {
-  tap(){ tone(880, 0.06, { vol: 0.12 }); },
-  clank(){ noise(0.14, { vol: 0.5, freq: 2600, q: 4 }); tone(190, 0.16, { type: 'square', vol: 0.08, slide: 95 }); },
-  place(){ [523, 659, 784].forEach((f, i) => tone(f, 0.28, { type: 'triangle', vol: 0.28, delay: i * 0.09 })); noise(0.18, { vol: 0.25, freq: 280, q: 0.8 }); },
-  nope(){ tone(340, 0.4, { vol: 0.32, slide: 140 }); tone(300, 0.35, { type: 'triangle', vol: 0.12, slide: 150, delay: 0.06 }); },
-  pop(){ tone(480, 0.12, { vol: 0.2, slide: 920 }); },
-  thud(){ noise(0.25, { vol: 0.45, freq: 160, q: 0.7 }); tone(95, 0.22, { vol: 0.3, slide: 48 }); },
-  fanfare(){ [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.24, { type: 'triangle', vol: 0.26, delay: i * 0.12 })); tone(1047, 0.7, { type: 'triangle', vol: 0.22, delay: 0.52 }); tone(784, 0.7, { type: 'triangle', vol: 0.14, delay: 0.52 }); },
-  win(){ const m = [523, 523, 659, 784, 659, 784, 1047]; m.forEach((f, i) => tone(f, 0.3, { type: 'triangle', vol: 0.26, delay: i * 0.16 })); tone(1047, 1.1, { type: 'triangle', vol: 0.2, delay: 1.12 }); tone(659, 1.1, { type: 'triangle', vol: 0.14, delay: 1.12 }); },
-  boom(){ noise(0.7, { vol: 0.22, freq: 500, q: 0.5 }); noise(0.4, { vol: 0.08, freq: 4000, q: 1, delay: 0.25 }); },
+  tap(){ if (clip('sfx/tap')) return; tone(880, 0.06, { vol: 0.12 }); },
+  clank(){ if (clip('sfx/clank')) return; noise(0.14, { vol: 0.5, freq: 2600, q: 4 }); tone(190, 0.16, { type: 'square', vol: 0.08, slide: 95 }); },
+  place(){ if (clip('sfx/place')) return; [523, 659, 784].forEach((f, i) => tone(f, 0.28, { type: 'triangle', vol: 0.28, delay: i * 0.09 })); noise(0.18, { vol: 0.25, freq: 280, q: 0.8 }); },
+  roof(){ if (clip('sfx/roof')) return; sfx.place(); },   // the roof going on: a ta-da, else the usual place sound
+  nope(){ if (clip('sfx/nope')) return; tone(340, 0.4, { vol: 0.32, slide: 140 }); tone(300, 0.35, { type: 'triangle', vol: 0.12, slide: 150, delay: 0.06 }); },
+  pop(){ if (clip('sfx/pop')) return; tone(480, 0.12, { vol: 0.2, slide: 920 }); },
+  thud(){ if (clip('sfx/thud')) return; noise(0.25, { vol: 0.45, freq: 160, q: 0.7 }); tone(95, 0.22, { vol: 0.3, slide: 48 }); },
+  fanfare(){ if (clip('sfx/fanfare')) return; [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.24, { type: 'triangle', vol: 0.26, delay: i * 0.12 })); tone(1047, 0.7, { type: 'triangle', vol: 0.22, delay: 0.52 }); tone(784, 0.7, { type: 'triangle', vol: 0.14, delay: 0.52 }); },
+  win(){ if (clip('sfx/win')) return; const m = [523, 523, 659, 784, 659, 784, 1047]; m.forEach((f, i) => tone(f, 0.3, { type: 'triangle', vol: 0.26, delay: i * 0.16 })); tone(1047, 1.1, { type: 'triangle', vol: 0.2, delay: 1.12 }); tone(659, 1.1, { type: 'triangle', vol: 0.14, delay: 1.12 }); },
+  boom(){ if (clip('sfx/boom')) return; noise(0.7, { vol: 0.22, freq: 500, q: 0.5 }); noise(0.4, { vol: 0.08, freq: 4000, q: 1, delay: 0.25 }); },
 };
-let voice = null;
+let voice = null, voiceClip = null, sayId = 0;
 function pickVoice(){
   try {
     const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
@@ -2230,9 +2276,24 @@ function pickVoice(){
   } catch (e){}
 }
 if ('speechSynthesis' in window){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
-function say(text){
-  if (muted || !('speechSynthesis' in window)) return;
-  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); if (voice) u.voice = voice; u.rate = 0.95; u.pitch = 1.25; speechSynthesis.speak(u); } catch (e){}
+function hush(){   // stops whatever is being said, so two lines never overlap
+  try { speechSynthesis.cancel(); } catch (e){}
+  if (voiceClip){ try { voiceClip.stop(); } catch (e){} voiceClip = null; }
+}
+function say(text){   // spoken line: its recorded clip, else the browser's built-in voice reads `text`
+  if (muted) return;
+  const id = ++sayId, name = LINES[text] && 'voice/' + LINES[text];
+  hush();
+  if (name && actx && !clipBuf[name] && clipReady[name]){   // still decoding (right after the first tap): wait up to 1.5 s for it
+    Promise.race([clipReady[name], new Promise(r => setTimeout(r, 1500))]).then(() => { if (id === sayId && !muted) speak(text, name); });
+    return;
+  }
+  speak(text, name);
+}
+function speak(text, name){
+  if (name && (voiceClip = clip(name, VOICE_VOL))) return;
+  if (!('speechSynthesis' in window)) return;
+  try { const u = new SpeechSynthesisUtterance(text); if (voice) u.voice = voice; u.rate = 0.95; u.pitch = 1.25; speechSynthesis.speak(u); } catch (e){}
 }
 
 /* ================= block site parts ================= */
@@ -2697,7 +2758,7 @@ function placeAt(slot){
     p.rot = p.targetRot; p.group.rotation.set(0, p.rot, 0); p.group.position.set(slot.x, sy, slot.z); buildFacade(p, true);
     disposeSlot(slot);
     tween(0.6, k => { p.group.scale.set(1 + 0.08 * (1 - k), 0.86 + 0.14 * k, 1 + 0.08 * (1 - k)); }, () => p.group.scale.set(1, 1, 1), easeOutElastic);
-    sfx.place();
+    if (p.roof) sfx.roof(); else sfx.place();
     burst(new THREE.Vector3(slot.x, sy + p.h + 0.3, slot.z), [p.color, 0xffffff, 0xffe066], { n: 46, speed: 6, life: 1, size: 0.5, gravity: 7, up: 4 });
     burst(new THREE.Vector3(slot.x, sy + 0.2, slot.z), [0xe0d6c6, 0xcfc2ad], { n: 16, speed: 3, life: 0.6, size: 0.7, gravity: 0.5, up: 0.6, spread: 1.2 });
     const left = game.slots.filter(s => !s.filled).length;
@@ -2879,7 +2940,7 @@ $('muteBtn').addEventListener('click', () => {
   $('icoOn').hidden = muted; $('icoOff').hidden = !muted;
   $('muteBtn').setAttribute('aria-label', muted ? 'Sound off' : 'Sound on');
   if (master) master.gain.value = muted ? 0 : 0.7;
-  if (muted && 'speechSynthesis' in window) speechSynthesis.cancel();
+  if (muted) hush();
 });
 $('dayBtn').addEventListener('click', () => {
   initAudio();
@@ -3029,9 +3090,10 @@ function stepCrane(dt){
   }
 
   if (hum && actx){
-    const g = muted ? 0 : Math.min(1, crane.speed / 7) * 0.05;
-    hum.g.gain.setTargetAtTime(g, actx.currentTime, 0.08);
-    hum.o.frequency.setTargetAtTime(42 + Math.min(crane.speed, 10) * 3, actx.currentTime, 0.1);
+    const k = muted ? 0 : Math.min(1, crane.speed / 7);
+    hum.g.gain.setTargetAtTime(k * (hum.s ? HUM_VOL : 0.05), actx.currentTime, 0.08);
+    if (hum.s) hum.s.playbackRate.setTargetAtTime(1 + Math.min(crane.speed, 10) * HUM_PITCH, actx.currentTime, 0.1);   // the recorded engine loop
+    else hum.o.frequency.setTargetAtTime(42 + Math.min(crane.speed, 10) * 3, actx.currentTime, 0.1);            // the synthesized one
   }
 }
 

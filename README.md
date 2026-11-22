@@ -23,7 +23,7 @@ Around the site the city keeps going: an excavator loads a dump truck, a bulldoz
 
 On iPhone or iPad, open the game in Safari, tap **Share → Add to Home Screen**, then open it once from the new icon while online. After that it starts full screen and works without internet. Changes arrive on their own: the next online launch downloads them and the one after shows them.
 
-(How: `manifest.webmanifest` gives the icon and full-screen mode; `sw.js`, a service worker, keeps a copy of every file the game uses, including three.js and the fonts. The icons `icon-180.png` and `icon-512.png` are rendered from `icon.svg` in headless Chrome.)
+(How: `manifest.webmanifest` gives the icon and full-screen mode; `sw.js`, a service worker, keeps a copy of every file the game uses, including three.js, the fonts and the sound clips. The icons `icon-180.png` and `icon-512.png` are rendered from `icon.svg` in headless Chrome.)
 
 ## Running locally
 
@@ -33,7 +33,7 @@ It is a single `index.html` with no build step. [three.js](https://threejs.org/)
 python -m http.server 8765
 ```
 
-Then open http://localhost:8765. All sounds are synthesized in the browser.
+Then open http://localhost:8765. The voice and sound effects are recorded clips in `assets/` (see Audio credits); when a clip can't load (for example when `index.html` is opened straight from disk) the game falls back to sounds synthesized in the browser and the device's own voice.
 
 ## Tuning knobs
 
@@ -48,6 +48,23 @@ In the facade section:
 - `THEMES`: the tower looks, in the order they're used: facade style, block colours, roof crown and `people` (the chance that a placed block gets a resident).
 - `windowLife`: how often windows get curtains (30%), blinds (12%), plants and cats.
 
+At the top of the sound section in `index.html`:
+
+- `CLIP_VOL` and `VOICE_VOL`: how loud the sound effects and the spoken lines are (0 to 1).
+- `CLIP_TRIM`: per-clip volume trims that even out the effects against the voice. Lower a number if a sound is too loud.
+- `HUM_VOL`: how loud the crane's engine hum is at full speed (0.1); it is silent while the crane stands still.
+- `HUM_PITCH`: how much the hum speeds up as the crane moves faster (0.04).
+- `ASSET_V`: bump it after replacing any file in `assets/`, so phones don't keep the old one.
+
 Finished floors are merged into a few meshes (`bakeFloor`) so a tall tower stays quick on phones.
 
 The number of towers built is kept in `localStorage` as `towercrane.towers`; clearing it starts again from the village look.
+
+## Audio credits
+
+Every clip was made on **2026-11-22** with the ElevenLabs **Creator** (paid) plan, which allows commercial use and needs no credit. All of it was made by AI, in a stock voice; no real person's voice was used. The clips are here only as the game's own sounds: they are not licensed to anyone else, and none of the audio is covered by any licence that may later be put on this game's code.
+
+- **Spoken lines** (`assets/voice/say-*.mp3`, 25 clips): voice "Jessica - Playful, Bright, Warm" (a stock ElevenLabs voice), model Eleven Multilingual v2. Every line the game says: the start and new-tower lines, "Now find where it fits!", "Now put the roof on top!", the two hints when a block doesn't fit, seven praise words, four floor-complete lines, "Last one: the roof!", the win, the garden, and five weather lines.
+- **Sound effects** (`assets/sfx/*.mp3`, 11 clips): ElevenLabs Sound Effects. `tap` (a wooden click for buttons and blocks), `clank` (the hook grabbing a block), `place` (a block set down), `nope` (a friendly boing when a block doesn't fit), `pop` (blocks landing in the yard, the site packing up), `thud` (a floor slab dropping on, or a block put back), `fanfare` (floor complete), `roof` (a ta-da as the roof goes on), `win` (the skyscraper is finished), `boom` (the win fireworks) and `hum` (the crane's diesel engine, looped while it moves).
+
+The mast growing taller and the rain and snow ambience are still synthesized in the browser.
